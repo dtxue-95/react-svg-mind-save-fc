@@ -84,7 +84,7 @@ interface MindMapCanvasProps {
     onAddChildNode: (parentUuid: string) => void;
     onAddSiblingNode: (nodeUuid: string) => void;
     onDeleteNode: (nodeUuid: string) => void;
-    onFinishEditing: (nodeUuid: string, name: string, size: { width: number; height: number; }, initialSize: { width: number; height: number; }) => void;
+    onFinishEditing: (nodeUuid: string, name: string, size: { width: number; height: number; }, initialSize: { width: number; height: number; }, isInitialEdit?: boolean) => void;
     onUpdateNodePosition: (nodeUuid: string, position: {x: number, y: number}) => void;
     onReparentNode: (nodeUuid: string, newParentUuid: string) => void;
     onReorderNode: (draggedNodeUuid: string, targetSiblingUuid: string, position: 'before' | 'after') => void;

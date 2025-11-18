@@ -175,7 +175,8 @@ export const useMindMap = (
         nodeUuid: string, 
         name: string, 
         size: { width: number; height: number; },
-        initialSize: { width: number; height: number; }
+        initialSize: { width: number; height: number; },
+        isInitialEdit: boolean = false
     ) => {
         const currentMindMap = mindMapRef.current;
         const node = currentMindMap.nodes[nodeUuid];
@@ -228,8 +229,15 @@ export const useMindMap = (
             onDataChangeRef.current(convertDataChangeInfo(info));
         }
         
-        // This special action manually sets the 'past' and 'present' states.
-        dispatch({ type: 'COMMIT_EDIT', payload: { stateToArchive: stateBeforeEdit, newPresentState: laidOutMap } });
+        if (isInitialEdit) {
+            // If this is the first edit after creating the node, we don't want to create a separate undo step for the edit.
+            // We update the 'present' state directly. The 'past' state still points to the moment BEFORE the node was added.
+            // So one Undo will remove the node entirely.
+            dispatch({ type: 'UPDATE_PRESENT_STATE', payload: laidOutMap });
+        } else {
+            // This special action manually sets the 'past' and 'present' states.
+            dispatch({ type: 'COMMIT_EDIT', payload: { stateToArchive: stateBeforeEdit, newPresentState: laidOutMap } });
+        }
     }, [dispatch]);
 
 
