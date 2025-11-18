@@ -1,6 +1,6 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import ReactDOM from 'react-dom/client';
-import App, { AppRef, DataChangeInfo, RawNode } from './App';
+import App, { AppRef, DataChangeInfo, RawNode, OperationType } from './App';
 import { mockInitialData } from './mockData';
 import './styles.css'
 
@@ -8,31 +8,23 @@ import './styles.css'
 const fakeApi = {
   // 接收前端数据，处理后返回更新后的完整数据
   saveData: (data: RawNode): Promise<{ success: boolean, updatedData: RawNode }> => {
-    console.log("正在向服务器保存数据...", data);
+    console.log("☁️ [Backend] 正在向服务器后台保存数据...", data);
     
-    // 模拟后端处理：给根节点名称加上后缀，并新增一个子节点
-    // FIX: Explicitly type the new node object as RawNode before adding it to the childNodeList. This ensures the `updatedDataFromServer` object correctly matches the `RawNode` type expected by the `fakeApi.saveData` return promise.
-    const newNode: RawNode = {
-      id: `server-id-${Date.now()}`,
-      uuid: crypto.randomUUID(),
-      name: "✨ 后端添加的节点",
-      nodeType: "moduleNode",
-      generateModeName: 'AI',
-    };
+    // 模拟后端处理：
+    // 1. 给根节点名称加上时间戳表明保存时间
+    // 2. 实际业务中，这里会为新节点生成数据库 ID
+    const now = new Date().toLocaleTimeString();
     const updatedDataFromServer = {
       ...data,
-      name: `${data.name} (已保存)`,
-      childNodeList: [
-        ...(data.childNodeList || []),
-        newNode,
-      ]
+      // 仅为了演示：更新根节点名字以显示保存状态
+      name: data.name ? (data.name.split(' (Last Saved:')[0] + ` (Last Saved: ${now})`) : 'Undefined', 
     };
 
     return new Promise(resolve => {
       setTimeout(() => {
-        console.log("保存成功！后端返回了更新后的数据。", updatedDataFromServer);
+        console.log("✅ [Backend] 保存成功！后端返回了更新后的数据。");
         resolve({ success: true, updatedData: updatedDataFromServer });
-      }, 1000); // 模拟1秒的网络延迟
+      }, 600); // 模拟 0.6秒 网络延迟
     });
   },
 };
@@ -40,78 +32,114 @@ const fakeApi = {
 
 function ComprehensiveExample() {
     const mindMapRef = useRef<AppRef>(null);
-    const [isSaving, setIsSaving] = useState(false);
-    const [statusText, setStatusText] = useState('请修改节点内容，然后点击外部保存按钮。');
+    const [statusText, setStatusText] = useState('准备就绪。试着修改、添加或删除节点。');
+    const [lastSavedTime, setLastSavedTime] = useState<string>('-');
+    const [isAutoSaveEnabled, setIsAutoSaveEnabled] = useState(false); // 默认关闭自动保存
 
-    // 组件加载后，延时设为可编辑模式，方便演示
+    // 组件加载后，延时设为可编辑模式
     useEffect(() => {
         const timer = setTimeout(() => {
             mindMapRef.current?.setReadOnly(false);
-            setStatusText('现在可以编辑了。');
+            setStatusText('请编辑...');
         }, 500);
         return () => clearTimeout(timer);
     }, []);
 
-    const handleSave = async () => {
-        if (!mindMapRef.current) {
-            alert("Mind Map 组件尚未加载完成。");
-            return;
-        }
-
-        setIsSaving(true);
-        setStatusText('正在保存...');
-
-        // 1. 从组件获取当前最新的数据
-        const saveData = mindMapRef.current.save();
+    // 统一的保存处理逻辑 (无论是自动保存触发还是手动按钮触发)
+    const handleSave = useCallback(async (info: DataChangeInfo) => {
+        if (!mindMapRef.current) return;
         
+        const triggerType = info.description === 'Auto-save triggered' ? '自动' : '手动';
+        setStatusText(`⏳ 正在${triggerType}保存...`);
+        
+        // 获取当前的层级数据
+        const dataToSave = info.currentRawData;
+
         try {
-            // 2. 将数据发送到后端
-            const result = await fakeApi.saveData(saveData.currentRawData);
+            // 2. 发送给后端
+            const result = await fakeApi.saveData(dataToSave);
 
             if (result.success) {
-                // 3. API 成功后，使用 syncData 更新前端，并保留视图
-                setStatusText('保存成功！正在同步最新数据...');
+                // 3. 后端返回成功后，使用 syncData 无感同步
                 mindMapRef.current.syncData(result.updatedData);
-
-                // 4. (最佳实践) 保存成功后，重置历史并设为只读
-                mindMapRef.current.setReadOnly(true);
                 
-                setTimeout(() => setStatusText('同步完成！已设为只读模式。'), 500);
-            } else {
-                alert("保存失败，请重试。");
-                setStatusText('保存失败！');
+                // 4. 重置历史记录的脏状态
+                mindMapRef.current.resetHistory();
+
+                setStatusText('✅ 已保存');
+                setLastSavedTime(new Date().toLocaleTimeString());
             }
         } catch (error) {
-            alert("保存时发生未知错误。");
-            setStatusText('保存出错！');
+            setStatusText('❌ 保存失败');
             console.error(error);
-        } finally {
-            setIsSaving(false);
         }
-    };
+    }, []);
+
+    // 监听数据变化的回调 (仅用于更新 UI 状态)
+    const handleDataChange = useCallback((info: DataChangeInfo) => {
+        const ignoredOperations = [
+            OperationType.SELECT_NODE,
+            OperationType.LOAD_DATA,
+            OperationType.SYNC_DATA,
+            OperationType.LAYOUT,
+            OperationType.EXPAND_NODES,
+            OperationType.TOGGLE_NODE_COLLAPSE,
+            OperationType.SAVE
+        ];
+
+        if (!ignoredOperations.includes(info.operationType)) {
+            setStatusText('📝 检测到更改...');
+        }
+    }, []);
 
     return (
         <div style={{ width: '100%', height: '100vh', display: 'flex', flexDirection: 'column' }}>
             <div style={{ 
-                padding: '10px', 
-                background: '#f0f0f0', 
-                borderBottom: '1px solid #ddd', 
+                padding: '10px 20px', 
+                background: '#fff', 
+                borderBottom: '1px solid #e1e4e8', 
                 display: 'flex', 
                 alignItems: 'center',
-                gap: '20px',
-                flexShrink: 0 
+                justifyContent: 'space-between',
+                flexShrink: 0,
+                fontSize: '14px',
+                color: '#333',
+                boxShadow: '0 2px 5px rgba(0,0,0,0.05)'
             }}>
-                <button onClick={handleSave} disabled={isSaving} style={{ padding: '8px 16px', fontSize: '16px' }}>
-                    {isSaving ? '保存中...' : '外部保存按钮'}
-                </button>
-                <p style={{ margin: 0 }}>{statusText}</p>
+                <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
+                    <strong style={{ fontSize: '16px' }}>React Mind Map Demo</strong>
+                    <span style={{ color: '#ddd' }}>|</span>
+                    
+                    {/* 自动保存开关 */}
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', userSelect: 'none' }}>
+                        <input 
+                            type="checkbox" 
+                            checked={isAutoSaveEnabled} 
+                            onChange={(e) => setIsAutoSaveEnabled(e.target.checked)}
+                            style={{ cursor: 'pointer' }}
+                        />
+                        <span style={{ fontWeight: 500 }}>自动保存</span>
+                    </label>
+                    
+                    <span style={{ color: '#ddd' }}>|</span>
+                    <span style={{ color: '#555' }}>{statusText}</span>
+                </div>
+                <div style={{ color: '#888', fontSize: '12px' }}>
+                    最后保存时间: {lastSavedTime}
+                </div>
             </div>
             <div style={{ flexGrow: 1, position: 'relative' }}>
                  <App
                     ref={mindMapRef}
                     initialData={mockInitialData}
-                    // onSave 回调是用于处理内部 "保存" 按钮的，我们这里用的是外部按钮
-                    // 但你也可以在这里绑定 handleSave 函数
+                    onDataChange={handleDataChange}
+                    onSave={handleSave}
+                    // 启用新的 API Prop
+                    enableAutoSave={isAutoSaveEnabled}
+                    autoSaveDelay={1000} // 1秒防抖
+                    
+                    // 当自动保存开启时，可以隐藏保存按钮，或者保留它作为“立即保存”
+                    topToolbarCommands={['undo', 'redo', 'separator', 'addSibling', 'addChild', 'delete', 'save', 'closeTop']}
                  />
             </div>
         </div>

@@ -69,80 +69,103 @@ root.render(
 
 ---
 
-## 🚀 最佳实践：实时保存与数据回写
+## 🚀 最佳实践：自动实时保存 (Auto-Save)
 
-这是在业务系统中集成思维导图最常见的场景：用户点击保存，前端将数据发送给后端，后端处理（生成业务ID、更新状态）后返回最新数据，前端需要**无感刷新**。
+在现代 Web 应用中，用户期望修改能自动保存，而不需要手动点击按钮。本组件通过 `onDataChange` 和 `syncData` 完美支持这一模式。
 
-### 核心 API：`syncData`
+### 方法一：使用内置的 API (推荐)
 
-请务必使用 `syncData` 而不是 `setData` 来更新已保存的数据。
-
-*   ❌ `setData(newData)`: **硬重置**。会丢失用户的缩放、平移位置和历史记录，视图会重置到初始状态。仅用于首次加载。
-*   ✅ `syncData(newData)`: **智能同步**。保留用户的视图位置（缩放/平移）和现有节点的布局。仅更新变化的内容，体验流畅。
-
-### 实现代码
+组件现已内置了防抖 (Debounce) 的自动保存逻辑，你只需开启配置即可。
 
 ```tsx
-import React, { useRef, useState } from 'react';
-import App, { AppRef, RawNode } from './App';
+<App 
+    enableAutoSave={true}      // 开启自动保存
+    autoSaveDelay={2000}       // 设置防抖延迟为 2秒 (默认 1000ms)
+    onSave={handleSave}        // 当防抖结束或用户点击保存按钮时触发
+/>
+```
 
-function RealTimeSaveExample() {
+在 `onSave` 回调中，你可以统一处理后端请求：
+
+```tsx
+const handleSave = useCallback(async (info: DataChangeInfo) => {
+    const isAutoSave = info.description === 'Auto-save triggered';
+    console.log(isAutoSave ? '正在自动保存...' : '用户手动保存...');
+
+    // 1. 调用后端
+    const updatedData = await api.save(info.currentRawData);
+    
+    // 2. 同步数据回组件（保留视图位置）
+    mindMapRef.current.syncData(updatedData);
+    
+    // 3. 重置脏检查状态
+    mindMapRef.current.resetHistory();
+}, []);
+```
+
+### 方法二：自定义实现
+
+如果你需要更复杂的控制（例如：仅在特定类型的操作后保存，或与其他业务逻辑耦合），你可以手动实现：
+
+1.  **监听变更**: 使用 `onDataChange` 捕获用户的每一次修改（如文本编辑、节点移动、添加删除）。
+2.  **防抖 (Debounce)**: 设置一个定时器（如 1-2秒），避免在用户连续输入时频繁请求后端。
+3.  **静默同步**: 保存成功后，使用 `syncData` 将后端返回的数据（可能包含新生成的 ID 或更新的时间戳）写回组件。**`syncData` 会保留用户的视图位置和编辑状态，不会打断用户操作。**
+
+```tsx
+import React, { useRef, useCallback } from 'react';
+import App, { AppRef, DataChangeInfo, OperationType } from './App';
+
+function AutoSaveExample() {
     const mindMapRef = useRef<AppRef>(null);
-    const [isSaving, setIsSaving] = useState(false);
+    const autoSaveTimerRef = useRef<any>(null);
 
-    // 模拟后端保存接口
-    const saveToBackend = async (data: RawNode) => {
-        // 模拟网络请求
-        return new Promise<RawNode>((resolve) => {
-            setTimeout(() => {
-                // 模拟后端：给所有节点补充 ID，更新某个字段
-                const updatedData = { ...data, name: data.name + " (已保存)" };
-                resolve(updatedData);
-            }, 1000);
-        });
-    };
-
-    const handleSave = async () => {
+    // 执行保存的逻辑
+    const performAutoSave = async () => {
         if (!mindMapRef.current) return;
         
-        setIsSaving(true);
-
-        // 1. 获取当前最新的前端数据
+        // 1. 获取最新数据
         const { currentRawData } = mindMapRef.current.save();
-
+        
         try {
-            // 2. 发送给后端
-            const latestData = await saveToBackend(currentRawData);
-
-            // 3. 【关键步骤】使用 syncData 智能同步后端返回的数据
-            // 这将更新内容（如回写 ID），但保持用户的视图位置不变
-            mindMapRef.current.syncData(latestData);
-
-            // 4. 重置历史记录（因为已保存，isDirty 应变为 false）
+            // 2. 调用你的后端 API
+            const updatedData = await yourBackendApi.save(currentRawData);
+            
+            // 3. 无感同步回前端（保留视图，不重置状态）
+            mindMapRef.current.syncData(updatedData);
+            
+            // 4. 清除脏状态标记
             mindMapRef.current.resetHistory();
             
-            // 5. (可选) 设为只读，防止在保存期间修改
-            // mindMapRef.current.setReadOnly(true);
-
-            alert("保存并同步成功！");
-        } catch (e) {
-            alert("保存失败");
-        } finally {
-            setIsSaving(false);
+            console.log('自动保存成功');
+        } catch (err) {
+            console.error('自动保存失败', err);
         }
     };
 
+    // 监听数据变更
+    const handleDataChange = useCallback((info: DataChangeInfo) => {
+        // 过滤掉无关的操作（如选中、布局更新、同步本身）
+        const ignored = [
+            OperationType.SELECT_NODE, 
+            OperationType.LAYOUT, 
+            OperationType.SYNC_DATA
+        ];
+        if (ignored.includes(info.operationType)) return;
+
+        // 防抖逻辑：重置计时器
+        if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+        
+        // 1.5秒后触发保存
+        autoSaveTimerRef.current = setTimeout(performAutoSave, 1500);
+    }, []);
+
     return (
-        <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
-            <div style={{ padding: 10, borderBottom: '1px solid #eee' }}>
-                <button onClick={handleSave} disabled={isSaving}>
-                    {isSaving ? '正在保存...' : '保存到后端并同步'}
-                </button>
-            </div>
-            <div style={{ flex: 1 }}>
-                <App ref={mindMapRef} />
-            </div>
-        </div>
+        <App 
+            ref={mindMapRef} 
+            onDataChange={handleDataChange} 
+            // 隐藏手动保存按钮
+            topToolbarCommands={['undo', 'redo', 'separator', 'addSibling', 'addChild', 'delete', 'closeTop']}
+        />
     );
 }
 ```
@@ -160,7 +183,7 @@ function RealTimeSaveExample() {
 | `initialData`           | `RawNode`                                | 用于初始化思维导图的层级化数据结构。**注意：** 这是一个受控属性。在组件挂载后，若此 prop 的引用发生变化（例如，父组件状态更新），将导致思维导图**完全重新加载**，当前的所有状态（包括编辑内容和历史记录）都将被**清空**。如需以命令式方式加载新数据，请使用 `ref.current.setData()` 方法。 | 内置的示例数据               |
 | `children`              | `React.ReactNode`                        | 在画布上渲染自定义子组件，通常与 `<Panel>` 组件结合使用。                                                                                                                                                                                                           | `undefined`                  |
 | `onDataChange`          | `(info: DataChangeInfo) => void`         | **核心回调**。当导图数据发生任何变更时触发。                                                                                                                                                                                                                        | `(info) => console.log(...)` |
-| `onSave`                | `(info: DataChangeInfo) => void`         | 当用户点击工具栏中的“保存”按钮时触发的回调函数。**这是实现保存逻辑的主要入口。**                                                                                                                                                                                      | `(info) => console.log(...)` |
+| `onSave`                | `(info: DataChangeInfo) => void`         | 当用户点击工具栏中的“保存”按钮时，**或者**当自动保存计时器触发时（若开启）触发的回调函数。                                                                                                                                                                            | `(info) => console.log(...)` |
 | `onExecuteUseCase`      | `(info: DataChangeInfo) => void`         | 当用户通过上下文菜单或 API 执行用例时触发的回调函数。                                                                                                                                                                                                                 | `(info) => console.log(...)` |
 | `onSubmitDefect`        | `(info: DataChangeInfo) => void`         | 当用户通过上下文菜单或 API 提交缺陷时触发的回调函数。                                                                                                                                                                                                                 | `(info) => console.log(...)` |
 | `onConfirmReviewStatus` | `(info: DataChangeInfo) => void`         | 当用户在评审弹窗中点击“确定”后触发。`info` 对象包含了此次变更的完整上下文。                                                                                                                                                                                           | `(info) => console.log(...)` |
@@ -190,6 +213,8 @@ function RealTimeSaveExample() {
 | `enableSingleReviewContextMenu`   | `boolean`                                | 是否在 `USE_CASE` 节点的右键菜单中显示“评审用例”选项。                                                                                                           | `true`                                                   |
 | `strictMode`                      | `boolean`                                | 是否启用严格模式，强制执行节点层级规则。                                                                                                                         | `true`                                                   |
 | `priorityEditableNodeTypes`       | `NodeType[]`                             | 定义了哪些节点类型可以编辑其优先级。                                                                                                                             | `['MODULE', 'TEST_POINT', 'USE_CASE', 'GENERAL']`        |
+| `enableAutoSave`                  | `boolean`                                | 是否启用内置的自动保存功能。启用后，组件会在数据变化后经过 `autoSaveDelay` 时间自动调用 `onSave`。                                                               | `false`                                                  |
+| `autoSaveDelay`                   | `number`                                 | 自动保存的防抖延迟时间（毫秒）。                                                                                                                                 | `1000`                                                   |
 
 #### UI 自定义
 
@@ -207,7 +232,7 @@ function RealTimeSaveExample() {
 | `showReadOnlyToggleButtons` | `boolean`                                | 是否在右上角显示“只读模式/编辑模式”的切换按钮。                                                                                                                  | `true`                                                     |
 | `showShortcutsButton`       | `boolean`                                | 是否在右上角显示“快捷键”按钮。                                                                                                                                   | `true`                                                     |
 | `topToolbarCommands`        | `CommandId[]`                            | 自定义顶部工具栏中显示的按钮及其顺序。                                                                                                                           | `['undo', 'redo', ..., 'closeTop']`                        |
-| `bottomToolbarCommands`     | `CommandId[]`                            | 自定义底部工具栏中显示的按钮及其顺序。                                                                                                                           | `['zoomOut', 'zoomDisplay', ..., 'closeBottom']`           |
+| `bottomToolbarCommands`     | `CommandId[]`                            | 自定义底部工具栏中显示的按钮及其顺序。                                                                                                                           | `['zoomOut', 'zoomIn', ..., 'closeBottom']`           |
 | `showContextMenu`           | `boolean`                                | 是否显示节点的右键上下文菜单。                                                                                                                                   | `true`                                                     |
 | `showCanvasContextMenu`     | `boolean`                                | 是否显示画布的右键上下文菜单。                                                                                                                                   | `true`                                                     |
 
