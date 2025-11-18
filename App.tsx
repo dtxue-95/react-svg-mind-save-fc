@@ -64,6 +64,7 @@ interface AppProps {
     onConfirmReviewStatus?: (info: DataChangeInfo) => void;
     onConfirmRemark?: (info: DataChangeInfo) => void;
     onConfirmScore?: (info: DataChangeInfo) => void;
+    onReadOnlyChange?: (isReadOnly: boolean) => void;
     canvasBackgroundColor?: string;
     showBackgroundDots?: boolean;
     showMinimap?: boolean;
@@ -112,6 +113,7 @@ const App = forwardRef<AppRef, AppProps>(({
     onConfirmReviewStatus = (info) => { console.log('Review status confirmed:', info); },
     onConfirmRemark = (info) => { console.log('Remark confirmed:', info); },
     onConfirmScore = (info) => { console.log('Score confirmed:', info); },
+    onReadOnlyChange,
     canvasBackgroundColor = '#f7f7f7',
     showBackgroundDots = true,
     showMinimap = false,
@@ -146,6 +148,13 @@ const App = forwardRef<AppRef, AppProps>(({
             setCurrentData(initialData);
         }
     }, [initialData, currentData?.uuid]);
+    
+    // Notify parent component when ReadOnly state changes
+    useEffect(() => {
+        if (onReadOnlyChange) {
+            onReadOnlyChange(isReadOnly);
+        }
+    }, [isReadOnly, onReadOnlyChange]);
 
     // Create the mind map structure from the current data state.
     // useMemo ensures this expensive operation only runs when data changes.

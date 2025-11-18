@@ -32,18 +32,10 @@ const fakeApi = {
 
 function ComprehensiveExample() {
     const mindMapRef = useRef<AppRef>(null);
-    const [statusText, setStatusText] = useState('准备就绪。试着修改、添加或删除节点。');
+    const [statusText, setStatusText] = useState('只读模式。点击右下角锁图标或使用 Shift+W 切换编辑模式。');
     const [lastSavedTime, setLastSavedTime] = useState<string>('-');
     const [isAutoSaveEnabled, setIsAutoSaveEnabled] = useState(false); // 默认关闭自动保存
-
-    // 组件加载后，延时设为可编辑模式
-    useEffect(() => {
-        const timer = setTimeout(() => {
-            mindMapRef.current?.setReadOnly(false);
-            setStatusText('请编辑...');
-        }, 500);
-        return () => clearTimeout(timer);
-    }, []);
+    const [isReadOnly, setIsReadOnly] = useState(true); // 追踪 xmind 的只读状态
 
     // 统一的保存处理逻辑 (无论是自动保存触发还是手动按钮触发)
     const handleSave = useCallback(async (info: DataChangeInfo) => {
@@ -98,6 +90,15 @@ function ComprehensiveExample() {
         }
     }, []);
 
+    const handleReadOnlyChange = useCallback((readOnly: boolean) => {
+        setIsReadOnly(readOnly);
+        if (readOnly) {
+            setStatusText('只读模式');
+        } else {
+            setStatusText('编辑模式');
+        }
+    }, []);
+
     return (
         <div style={{ width: '100%', height: '100vh', display: 'flex', flexDirection: 'column' }}>
             <div style={{ 
@@ -116,18 +117,22 @@ function ComprehensiveExample() {
                     <strong style={{ fontSize: '16px' }}>React Mind Map Demo</strong>
                     <span style={{ color: '#ddd' }}>|</span>
                     
-                    {/* 自动保存开关 */}
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', userSelect: 'none' }}>
-                        <input 
-                            type="checkbox" 
-                            checked={isAutoSaveEnabled} 
-                            onChange={(e) => setIsAutoSaveEnabled(e.target.checked)}
-                            style={{ cursor: 'pointer' }}
-                        />
-                        <span style={{ fontWeight: 500 }}>自动保存</span>
-                    </label>
+                    {/* 仅在编辑模式下显示自动保存开关 */}
+                    {!isReadOnly && (
+                        <>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', userSelect: 'none' }}>
+                                <input 
+                                    type="checkbox" 
+                                    checked={isAutoSaveEnabled} 
+                                    onChange={(e) => setIsAutoSaveEnabled(e.target.checked)}
+                                    style={{ cursor: 'pointer' }}
+                                />
+                                <span style={{ fontWeight: 500 }}>自动保存</span>
+                            </label>
+                            <span style={{ color: '#ddd' }}>|</span>
+                        </>
+                    )}
                     
-                    <span style={{ color: '#ddd' }}>|</span>
                     <span style={{ color: '#555' }}>{statusText}</span>
                 </div>
                 <div style={{ color: '#888', fontSize: '12px' }}>
@@ -144,6 +149,9 @@ function ComprehensiveExample() {
                     enableAutoSave={isAutoSaveEnabled}
                     autoSaveDelay={1000} // 1秒防抖
                     
+                    // 监听只读状态变化
+                    onReadOnlyChange={handleReadOnlyChange}
+
                     // 当自动保存开启时，可以隐藏保存按钮，或者保留它作为“立即保存”
                     topToolbarCommands={['undo', 'redo', 'separator', 'addSibling', 'addChild', 'delete', 'save', 'closeTop']}
                  />
