@@ -85,21 +85,25 @@ root.render(
 />
 ```
 
-在 `onSave` 回调中，你可以统一处理后端请求：
+在 `onSave` 回调中，你可以统一处理后端请求，并根据是否为自动保存来决定是否保留历史记录：
 
 ```tsx
 const handleSave = useCallback(async (info: DataChangeInfo) => {
     const isAutoSave = info.description === 'Auto-save triggered';
-    console.log(isAutoSave ? '正在自动保存...' : '用户手动保存...');
-
+    
     // 1. 调用后端
     const updatedData = await api.save(info.currentRawData);
     
     // 2. 同步数据回组件（保留视图位置）
-    mindMapRef.current.syncData(updatedData);
-    
-    // 3. 重置脏检查状态
-    mindMapRef.current.resetHistory();
+    if (isAutoSave) {
+        // 自动保存：同步数据但保留撤销/重做历史（第二个参数传 true）
+        mindMapRef.current.syncData(updatedData, true);
+        // 注意：不要调用 resetHistory()，否则会清空用户的撤销栈
+    } else {
+        // 手动保存：同步数据并重置历史（可选，视业务需求而定）
+        mindMapRef.current.syncData(updatedData, false);
+        mindMapRef.current.resetHistory();
+    }
 }, []);
 ```
 
@@ -130,11 +134,8 @@ function AutoSaveExample() {
             // 2. 调用你的后端 API
             const updatedData = await yourBackendApi.save(currentRawData);
             
-            // 3. 无感同步回前端（保留视图，不重置状态）
-            mindMapRef.current.syncData(updatedData);
-            
-            // 4. 清除脏状态标记
-            mindMapRef.current.resetHistory();
+            // 3. 无感同步回前端（保留视图，保留历史）
+            mindMapRef.current.syncData(updatedData, true);
             
             console.log('自动保存成功');
         } catch (err) {
@@ -247,7 +248,8 @@ export interface AppRef {
   // --- 数据操作 ---
   save: () => DataChangeInfo;
   setData: (newData: RawNode) => void;
-  syncData: (newData: RawNode) => void;
+  // 如果 preserveHistory 为 true，则更新数据时不会清空撤销/重做栈
+  syncData: (newData: RawNode, preserveHistory?: boolean) => void;
   partialUpdateNodeData: (nodeUuid: string, partialData: Partial<MindMapNodeData>) => void;
 
   // --- 状态控制 ---
@@ -273,9 +275,10 @@ export interface AppRef {
     -   **作用**: **硬重置**。完全替换思维导图中的所有数据，并重置视图（缩放/平移）和历史记录。
     -   **用途**: 用于首次加载数据或需要完全丢弃当前状态并加载一个全新导图的场景。
 
--   **`syncData(newData: RawNode)`**
+-   **`syncData(newData: RawNode, preserveHistory?: boolean)`**
     -   **作用**: **智能同步**。使用新数据更新导图，但**保留当前的视图（缩放/平移）和现有节点的布局信息**。
-    -   **用途**: **推荐用于保存成功后回显后端数据**。它会平滑地添加、删除或更新节点，而不会让用户的视图跳回初始位置，极大地提升了用户体验。
+    -   **参数**: `preserveHistory` (可选，默认 false)。如果为 `true`，则更新操作不会清空撤销/重做历史记录。
+    -   **用途**: **推荐用于保存成功后回显后端数据**。它会平滑地添加、删除或更新节点，而不会让用户的视图跳回初始位置。对于自动保存场景，建议设置 `preserveHistory: true`。
 
 -   **`resetHistory()`**
     -   **作用**: **清空撤销/重做历史记录**，并将当前状态设为新的“原始”状态。

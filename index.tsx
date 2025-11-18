@@ -49,7 +49,8 @@ function ComprehensiveExample() {
     const handleSave = useCallback(async (info: DataChangeInfo) => {
         if (!mindMapRef.current) return;
         
-        const triggerType = info.description === 'Auto-save triggered' ? '自动' : '手动';
+        const isAutoSave = info.description === 'Auto-save triggered';
+        const triggerType = isAutoSave ? '自动' : '手动';
         setStatusText(`⏳ 正在${triggerType}保存...`);
         
         // 获取当前的层级数据
@@ -61,10 +62,15 @@ function ComprehensiveExample() {
 
             if (result.success) {
                 // 3. 后端返回成功后，使用 syncData 无感同步
-                mindMapRef.current.syncData(result.updatedData);
-                
-                // 4. 重置历史记录的脏状态
-                mindMapRef.current.resetHistory();
+                // 如果是自动保存，第二个参数传 true，保留撤销/重做历史
+                if (isAutoSave) {
+                    mindMapRef.current.syncData(result.updatedData, true);
+                    // 自动保存不调用 resetHistory，以便用户可以继续撤销
+                } else {
+                    // 手动保存，视为一个“提交点”，可以清除历史记录 (或者也可以选择保留)
+                    mindMapRef.current.syncData(result.updatedData, false);
+                    mindMapRef.current.resetHistory();
+                }
 
                 setStatusText('✅ 已保存');
                 setLastSavedTime(new Date().toLocaleTimeString());

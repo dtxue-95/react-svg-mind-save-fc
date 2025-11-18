@@ -28,7 +28,7 @@ export interface AppRef {
   executeUseCase: (nodeUuid: string) => void;
   submitDefect: (nodeUuid: string) => void;
   setData: (newData: RawNode) => void;
-  syncData: (newData: RawNode) => void;
+  syncData: (newData: RawNode, preserveHistory?: boolean) => void;
   resetHistory: () => void;
   setReadOnly: (isReadOnly: boolean) => void;
   confirmReviewStatus: (nodeUuid: string, newStatus: ReviewStatusCode) => void;
@@ -365,9 +365,9 @@ const App = forwardRef<AppRef, AppProps>(({
             resetHistory();
             setIsReadOnly(true);
         },
-        syncData: (newData: RawNode) => {
+        syncData: (newData: RawNode, preserveHistory = false) => {
             const newMindMap = createInitialMindMap(newData);
-            syncData(newMindMap);
+            syncData(newMindMap, preserveHistory);
         },
         resetHistory: () => {
             resetHistory();
