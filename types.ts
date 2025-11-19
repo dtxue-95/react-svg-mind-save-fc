@@ -244,3 +244,8 @@ export interface DataChangeInfo {
 }
 
 export type DataChangeCallback = (changeInfo: DataChangeInfo) => void;
+
+export interface ValidationConfig {
+    requirePriority?: boolean;
+    requirePrecondition?: boolean;
+}
